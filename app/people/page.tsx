@@ -42,7 +42,12 @@ export default async function PeoplePage() {
             >
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="font-semibold">{person.name}</p>
+                  <Link
+                    href={`/people/${person.id}`}
+                    className="font-semibold hover:underline"
+                  >
+                    {person.name}
+                  </Link>
                   {person.notes ? (
                     <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-600">
                       {person.notes}
