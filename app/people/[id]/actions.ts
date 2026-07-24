@@ -29,6 +29,12 @@ export type DeleteRecordState = {
   submissionId: number;
 };
 
+export type InstallmentActionState = {
+  status: "idle" | "error" | "success";
+  message: string;
+  submissionId: number;
+};
+
 const amountPattern = /^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/;
 const datePattern = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -57,6 +63,24 @@ function revalidateMoneyPages(personId: string) {
   revalidatePath("/people");
   revalidatePath("/");
   revalidatePath("/reports");
+}
+
+function addMonthsClamped(date: Date, offset: number) {
+  const targetMonth = date.getUTCMonth() + offset;
+  const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
+  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+  const lastDay = new Date(
+    Date.UTC(targetYear, normalizedMonth + 1, 0, 12),
+  ).getUTCDate();
+
+  return new Date(
+    Date.UTC(
+      targetYear,
+      normalizedMonth,
+      Math.min(date.getUTCDate(), lastDay),
+      12,
+    ),
+  );
 }
 
 export async function createDebt(
@@ -379,10 +403,17 @@ export async function updateDebt(
           personId,
         },
         select: {
+          amount: true,
           payments: {
             select: {
               amount: true,
             },
+          },
+          installments: {
+            select: {
+              id: true,
+            },
+            take: 1,
           },
         },
       });
@@ -395,6 +426,13 @@ export async function updateDebt(
         (total, payment) => total.plus(payment.amount),
         new Prisma.Decimal(0),
       );
+
+      if (
+        debt.installments.length > 0 &&
+        !debtAmount.equals(debt.amount)
+      ) {
+        return { status: "scheduled-amount" } as const;
+      }
 
       if (debtAmount.lessThan(paid)) {
         return {
@@ -432,6 +470,14 @@ export async function updateDebt(
     return {
       status: "error",
       message: `Debt cannot be less than the $${result.paid} already paid.`,
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "scheduled-amount") {
+    return {
+      status: "error",
+      message: "The amount cannot change after installments are scheduled.",
       submissionId: previousState.submissionId,
     };
   }
@@ -520,6 +566,15 @@ export async function updatePayment(
               amount: true,
             },
           },
+          installments: {
+            where: {
+              paymentId,
+            },
+            select: {
+              amount: true,
+            },
+            take: 1,
+          },
         },
       });
 
@@ -533,6 +588,18 @@ export async function updatePayment(
         new Prisma.Decimal(0),
       );
       const maximumPayment = debt.amount.minus(otherPayments);
+
+      const linkedInstallment = debt.installments[0];
+
+      if (
+        linkedInstallment &&
+        !paymentAmount.equals(linkedInstallment.amount)
+      ) {
+        return {
+          status: "installment-amount",
+          amount: linkedInstallment.amount.toFixed(2),
+        } as const;
+      }
 
       if (paymentAmount.greaterThan(maximumPayment)) {
         return {
@@ -569,6 +636,14 @@ export async function updatePayment(
     return {
       status: "error",
       message: `Payment cannot exceed $${result.maximum}.`,
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "installment-amount") {
+    return {
+      status: "error",
+      message: `This installment payment must remain $${result.amount}.`,
       submissionId: previousState.submissionId,
     };
   }
@@ -706,4 +781,289 @@ export async function deletePerson(
 
   revalidateMoneyPages(personId);
   redirect("/people");
+}
+
+export async function createInstallmentPlan(
+  previousState: InstallmentActionState,
+  formData: FormData,
+): Promise<InstallmentActionState> {
+  const personId = formData.get("personId");
+  const debtId = formData.get("debtId");
+  const installmentCountValue = formData.get("installmentCount");
+  const firstDueAt = parseDate(formData.get("firstDueAt"));
+
+  if (
+    typeof personId !== "string" ||
+    !personId ||
+    typeof debtId !== "string" ||
+    !debtId
+  ) {
+    return {
+      status: "error",
+      message: "Debt is required.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const installmentCount =
+    typeof installmentCountValue === "string" &&
+    /^\d+$/.test(installmentCountValue)
+      ? Number(installmentCountValue)
+      : 0;
+
+  if (installmentCount < 2 || installmentCount > 60) {
+    return {
+      status: "error",
+      message: "Choose between 2 and 60 monthly installments.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (!firstDueAt) {
+    return {
+      status: "error",
+      message: "Enter a valid first due date.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const result = await prisma.$transaction(
+    async (transaction) => {
+      const debt = await transaction.debt.findFirst({
+        where: {
+          id: debtId,
+          personId,
+        },
+        select: {
+          amount: true,
+          payments: {
+            select: {
+              id: true,
+            },
+            take: 1,
+          },
+          installments: {
+            select: {
+              id: true,
+            },
+            take: 1,
+          },
+        },
+      });
+
+      if (!debt) {
+        return { status: "not-found" } as const;
+      }
+
+      if (debt.installments.length > 0) {
+        return { status: "already-scheduled" } as const;
+      }
+
+      if (debt.payments.length > 0) {
+        return { status: "already-paid" } as const;
+      }
+
+      const totalCents = debt.amount.times(100).toNumber();
+
+      if (installmentCount > totalCents) {
+        return { status: "amount-too-small" } as const;
+      }
+
+      const regularCents = Math.floor(totalCents / installmentCount);
+      const finalCents =
+        totalCents - regularCents * (installmentCount - 1);
+
+      await transaction.installment.createMany({
+        data: Array.from({ length: installmentCount }, (_, index) => ({
+          debtId,
+          sequence: index + 1,
+          amount: new Prisma.Decimal(
+            index === installmentCount - 1 ? finalCents : regularCents,
+          ).dividedBy(100),
+          dueAt: addMonthsClamped(firstDueAt, index),
+        })),
+      });
+
+      return { status: "created" } as const;
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    },
+  );
+
+  if (result.status === "not-found") {
+    return {
+      status: "error",
+      message: "Debt was not found for this person.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "already-scheduled") {
+    return {
+      status: "error",
+      message: "This debt already has an installment plan.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "already-paid") {
+    return {
+      status: "error",
+      message: "Installments can only be scheduled before payments begin.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "amount-too-small") {
+    return {
+      status: "error",
+      message: "Each installment must be at least $0.01.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  revalidateMoneyPages(personId);
+
+  return {
+    status: "success",
+    message: "Installment plan created.",
+    submissionId: previousState.submissionId + 1,
+  };
+}
+
+export async function markInstallmentPaid(
+  previousState: InstallmentActionState,
+  formData: FormData,
+): Promise<InstallmentActionState> {
+  const personId = formData.get("personId");
+  const debtId = formData.get("debtId");
+  const installmentId = formData.get("installmentId");
+
+  if (
+    typeof personId !== "string" ||
+    !personId ||
+    typeof debtId !== "string" ||
+    !debtId ||
+    typeof installmentId !== "string" ||
+    !installmentId
+  ) {
+    return {
+      status: "error",
+      message: "Installment is required.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const result = await prisma.$transaction(
+    async (transaction) => {
+      const installment = await transaction.installment.findFirst({
+        where: {
+          id: installmentId,
+          debt: {
+            id: debtId,
+            personId,
+          },
+        },
+        select: {
+          amount: true,
+          sequence: true,
+          paymentId: true,
+          debt: {
+            select: {
+              amount: true,
+              installments: {
+                select: {
+                  id: true,
+                },
+              },
+              payments: {
+                select: {
+                  amount: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!installment) {
+        return { status: "not-found" } as const;
+      }
+
+      if (installment.paymentId) {
+        return { status: "already-paid" } as const;
+      }
+
+      const paid = installment.debt.payments.reduce(
+        (total, payment) => total.plus(payment.amount),
+        new Prisma.Decimal(0),
+      );
+      const remaining = installment.debt.amount.minus(paid);
+
+      if (installment.amount.greaterThan(remaining)) {
+        return {
+          status: "overpayment",
+          remaining: remaining.toFixed(2),
+        } as const;
+      }
+
+      const payment = await transaction.payment.create({
+        data: {
+          debtId,
+          amount: installment.amount,
+          notes: `Installment ${installment.sequence} of ${installment.debt.installments.length}`,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      await transaction.installment.update({
+        where: {
+          id: installmentId,
+        },
+        data: {
+          paymentId: payment.id,
+        },
+      });
+
+      return { status: "paid" } as const;
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+    },
+  );
+
+  if (result.status === "not-found") {
+    return {
+      status: "error",
+      message: "Installment was not found for this debt.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "already-paid") {
+    return {
+      status: "error",
+      message: "This installment is already paid.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  if (result.status === "overpayment") {
+    return {
+      status: "error",
+      message: `Only $${result.remaining} remains on this debt.`,
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  revalidateMoneyPages(personId);
+
+  return {
+    status: "success",
+    message: "Installment marked as paid.",
+    submissionId: previousState.submissionId + 1,
+  };
 }

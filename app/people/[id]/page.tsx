@@ -5,6 +5,8 @@ import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
 import { DebtEditForm } from "./debt-edit-form";
 import { DeleteRecordForm } from "./delete-record-form";
+import { InstallmentPlanForm } from "./installment-plan-form";
+import { MarkInstallmentPaidForm } from "./mark-installment-paid-form";
 import { PaymentForm } from "./payment-form";
 import { PaymentEditForm } from "./payment-edit-form";
 import { PersonEditForm } from "./person-edit-form";
@@ -33,6 +35,27 @@ function formatDateInput(date: Date) {
   ].join("-");
 }
 
+function getInstallmentStatus(
+  dueAt: Date,
+  isPaid: boolean,
+  monthStart: Date,
+  nextMonthStart: Date,
+) {
+  if (isPaid) {
+    return "Paid";
+  }
+
+  if (dueAt < monthStart) {
+    return "Overdue";
+  }
+
+  if (dueAt < nextMonthStart) {
+    return "Due this month";
+  }
+
+  return "Upcoming";
+}
+
 export default async function PersonDetailPage({
   params,
 }: {
@@ -47,6 +70,25 @@ export default async function PersonDetailPage({
         include: {
           payments: {
             orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+            include: {
+              installment: {
+                select: {
+                  id: true,
+                },
+              },
+            },
+          },
+          installments: {
+            orderBy: {
+              sequence: "asc",
+            },
+            include: {
+              payment: {
+                select: {
+                  id: true,
+                },
+              },
+            },
           },
         },
       },
@@ -76,6 +118,9 @@ export default async function PersonDetailPage({
     (sum, debt) => sum.plus(debt.remaining),
     new Prisma.Decimal(0),
   );
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -179,6 +224,7 @@ export default async function PersonDetailPage({
                   amount={debt.amount.toFixed(2)}
                   incurredAt={formatDateInput(debt.incurredAt)}
                   notes={debt.notes ?? ""}
+                  amountLocked={debt.installments.length > 0}
                 />
 
                 <DeleteRecordForm
@@ -186,11 +232,87 @@ export default async function PersonDetailPage({
                   personId={person.id}
                   debtId={debt.id}
                   label="Delete debt"
-                  confirmation={`Delete "${debt.description}" and its ${debt.payments.length} payment${debt.payments.length === 1 ? "" : "s"}? This cannot be undone.`}
+                  confirmation={`Delete "${debt.description}", its ${debt.installments.length} installment${debt.installments.length === 1 ? "" : "s"}, and its ${debt.payments.length} payment${debt.payments.length === 1 ? "" : "s"}? This cannot be undone.`}
                   className="mt-3"
                 />
 
-                {debt.remaining.greaterThan(0) ? (
+                {debt.installments.length === 0 &&
+                debt.payments.length === 0 ? (
+                  <InstallmentPlanForm
+                    personId={person.id}
+                    debtId={debt.id}
+                    firstDueAt={formatDateInput(now)}
+                  />
+                ) : null}
+
+                {debt.installments.length > 0 ? (
+                  <section className="mt-5 border-t border-zinc-200 pt-5">
+                    <div className="flex flex-wrap items-baseline justify-between gap-2">
+                      <h3 className="text-sm font-semibold">
+                        Monthly installments
+                      </h3>
+                      <p className="text-xs text-zinc-500">
+                        {debt.installments.length} total
+                      </p>
+                    </div>
+
+                    <ol className="mt-3 grid gap-2">
+                      {debt.installments.map((installment) => {
+                        const status = getInstallmentStatus(
+                          installment.dueAt,
+                          Boolean(installment.payment),
+                          monthStart,
+                          nextMonthStart,
+                        );
+
+                        return (
+                          <li
+                            key={installment.id}
+                            className="flex flex-wrap items-center justify-between gap-3 rounded-lg bg-zinc-50 p-4"
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-center gap-2">
+                                <p className="text-sm font-medium">
+                                  Installment {installment.sequence}
+                                </p>
+                                <span
+                                  className={
+                                    status === "Overdue"
+                                      ? "rounded-full bg-red-100 px-2 py-1 text-xs font-medium text-red-700"
+                                      : status === "Due this month"
+                                        ? "rounded-full bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800"
+                                        : "rounded-full bg-zinc-200 px-2 py-1 text-xs font-medium text-zinc-700"
+                                  }
+                                >
+                                  {status}
+                                </span>
+                              </div>
+                              <p className="mt-1 text-sm text-zinc-600">
+                                {formatAmount(installment.amount)} due{" "}
+                                <time
+                                  dateTime={installment.dueAt.toISOString()}
+                                >
+                                  {installment.dueAt.toLocaleDateString()}
+                                </time>
+                              </p>
+                            </div>
+
+                            {!installment.payment ? (
+                              <MarkInstallmentPaidForm
+                                personId={person.id}
+                                debtId={debt.id}
+                                installmentId={installment.id}
+                              />
+                            ) : null}
+                          </li>
+                        );
+                      })}
+                    </ol>
+                  </section>
+                ) : null}
+
+                {debt.remaining.greaterThan(0) &&
+                debt.installments.length === 0 ? (
                   <PaymentForm
                     personId={person.id}
                     debtId={debt.id}
@@ -234,6 +356,7 @@ export default async function PersonDetailPage({
                               .toFixed(2)}
                             paidAt={formatDateInput(payment.paidAt)}
                             notes={payment.notes ?? ""}
+                            amountLocked={Boolean(payment.installment)}
                           />
 
                           <DeleteRecordForm
