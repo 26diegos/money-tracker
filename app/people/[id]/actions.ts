@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { redirect } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 
@@ -17,6 +18,12 @@ export type CreatePaymentState = {
 };
 
 export type EditRecordState = {
+  status: "idle" | "error" | "success";
+  message: string;
+  submissionId: number;
+};
+
+export type DeleteRecordState = {
   status: "idle" | "error" | "success";
   message: string;
   submissionId: number;
@@ -573,4 +580,130 @@ export async function updatePayment(
     message: "Payment updated.",
     submissionId: previousState.submissionId + 1,
   };
+}
+
+export async function deletePayment(
+  previousState: DeleteRecordState,
+  formData: FormData,
+): Promise<DeleteRecordState> {
+  const personId = formData.get("personId");
+  const debtId = formData.get("debtId");
+  const paymentId = formData.get("paymentId");
+
+  if (
+    typeof personId !== "string" ||
+    !personId ||
+    typeof debtId !== "string" ||
+    !debtId ||
+    typeof paymentId !== "string" ||
+    !paymentId
+  ) {
+    return {
+      status: "error",
+      message: "Payment is required.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const result = await prisma.payment.deleteMany({
+    where: {
+      id: paymentId,
+      debt: {
+        id: debtId,
+        personId,
+      },
+    },
+  });
+
+  if (result.count === 0) {
+    return {
+      status: "error",
+      message: "Payment was not found for this debt.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  revalidateMoneyPages(personId);
+
+  return {
+    status: "success",
+    message: "Payment deleted.",
+    submissionId: previousState.submissionId + 1,
+  };
+}
+
+export async function deleteDebt(
+  previousState: DeleteRecordState,
+  formData: FormData,
+): Promise<DeleteRecordState> {
+  const personId = formData.get("personId");
+  const debtId = formData.get("debtId");
+
+  if (
+    typeof personId !== "string" ||
+    !personId ||
+    typeof debtId !== "string" ||
+    !debtId
+  ) {
+    return {
+      status: "error",
+      message: "Debt is required.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const result = await prisma.debt.deleteMany({
+    where: {
+      id: debtId,
+      personId,
+    },
+  });
+
+  if (result.count === 0) {
+    return {
+      status: "error",
+      message: "Debt was not found for this person.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  revalidateMoneyPages(personId);
+
+  return {
+    status: "success",
+    message: "Debt and its payments deleted.",
+    submissionId: previousState.submissionId + 1,
+  };
+}
+
+export async function deletePerson(
+  previousState: DeleteRecordState,
+  formData: FormData,
+): Promise<DeleteRecordState> {
+  const personId = formData.get("personId");
+
+  if (typeof personId !== "string" || !personId) {
+    return {
+      status: "error",
+      message: "Person is required.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  const result = await prisma.person.deleteMany({
+    where: {
+      id: personId,
+    },
+  });
+
+  if (result.count === 0) {
+    return {
+      status: "error",
+      message: "Person was not found.",
+      submissionId: previousState.submissionId,
+    };
+  }
+
+  revalidateMoneyPages(personId);
+  redirect("/people");
 }

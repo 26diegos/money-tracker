@@ -4,6 +4,7 @@ import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
 import { DebtEditForm } from "./debt-edit-form";
+import { DeleteRecordForm } from "./delete-record-form";
 import { PaymentForm } from "./payment-form";
 import { PaymentEditForm } from "./payment-edit-form";
 import { PersonEditForm } from "./person-edit-form";
@@ -180,6 +181,15 @@ export default async function PersonDetailPage({
                   notes={debt.notes ?? ""}
                 />
 
+                <DeleteRecordForm
+                  kind="debt"
+                  personId={person.id}
+                  debtId={debt.id}
+                  label="Delete debt"
+                  confirmation={`Delete "${debt.description}" and its ${debt.payments.length} payment${debt.payments.length === 1 ? "" : "s"}? This cannot be undone.`}
+                  className="mt-3"
+                />
+
                 {debt.remaining.greaterThan(0) ? (
                   <PaymentForm
                     personId={person.id}
@@ -225,6 +235,15 @@ export default async function PersonDetailPage({
                             paidAt={formatDateInput(payment.paidAt)}
                             notes={payment.notes ?? ""}
                           />
+
+                          <DeleteRecordForm
+                            kind="payment"
+                            personId={person.id}
+                            debtId={debt.id}
+                            paymentId={payment.id}
+                            label="Delete payment"
+                            confirmation={`Delete this ${formatAmount(payment.amount)} payment? This cannot be undone.`}
+                          />
                         </li>
                       ))}
                     </ul>
@@ -234,6 +253,21 @@ export default async function PersonDetailPage({
             ))}
           </ul>
         )}
+      </section>
+
+      <section className="mt-12 rounded-xl border border-red-200 p-5">
+        <h2 className="font-semibold text-red-800">Danger zone</h2>
+        <p className="mt-1 text-sm text-zinc-600">
+          Deleting this person also deletes all {debts.length} debt
+          {debts.length === 1 ? "" : "s"} and their payment history.
+        </p>
+        <DeleteRecordForm
+          kind="person"
+          personId={person.id}
+          label="Delete person"
+          confirmation={`Delete ${person.name}, all ${debts.length} debt${debts.length === 1 ? "" : "s"}, and every related payment? This cannot be undone.`}
+          className="mt-4"
+        />
       </section>
     </main>
   );
