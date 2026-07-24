@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { formatMoney, getTotalOutstanding } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 import { PersonForm } from "./person-form";
 
@@ -6,6 +7,18 @@ export default async function PeoplePage() {
   const people = await prisma.person.findMany({
     orderBy: {
       createdAt: "desc",
+    },
+    include: {
+      debts: {
+        select: {
+          amount: true,
+          payments: {
+            select: {
+              amount: true,
+            },
+          },
+        },
+      },
     },
   });
 
@@ -35,34 +48,41 @@ export default async function PeoplePage() {
         </div>
       ) : (
         <ul className="mt-10 grid gap-4">
-          {people.map((person) => (
-            <li
-              key={person.id}
-              className="rounded-xl border border-zinc-200 p-5"
-            >
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <Link
-                    href={`/people/${person.id}`}
-                    className="font-semibold hover:underline"
-                  >
-                    {person.name}
-                  </Link>
-                  {person.notes ? (
-                    <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-600">
-                      {person.notes}
+          {people.map((person) => {
+            const outstanding = getTotalOutstanding(person.debts);
+
+            return (
+              <li
+                key={person.id}
+                className="rounded-xl border border-zinc-200 p-5"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <Link
+                      href={`/people/${person.id}`}
+                      className="font-semibold hover:underline"
+                    >
+                      {person.name}
+                    </Link>
+                    {person.notes ? (
+                      <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-600">
+                        {person.notes}
+                      </p>
+                    ) : null}
+                  </div>
+
+                  <div className="shrink-0 text-right">
+                    <p className="font-semibold">
+                      {formatMoney(outstanding)}
                     </p>
-                  ) : null}
+                    <p className="mt-1 text-sm text-zinc-500">
+                      {outstanding.greaterThan(0) ? "Outstanding" : "Settled"}
+                    </p>
+                  </div>
                 </div>
-                <time
-                  dateTime={person.createdAt.toISOString()}
-                  className="shrink-0 text-sm text-zinc-500"
-                >
-                  {person.createdAt.toLocaleDateString()}
-                </time>
-              </div>
-            </li>
-          ))}
+              </li>
+            );
+          })}
         </ul>
       )}
     </main>

@@ -1,6 +1,50 @@
 import Link from "next/link";
+import { Prisma } from "@/src/generated/prisma/client";
+import { formatMoney, getDebtOutstanding } from "@/lib/money";
+import { prisma } from "@/lib/prisma";
 
-export default function HomePage() {
+export default async function HomePage() {
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+
+  const [debts, paymentsThisMonth] = await Promise.all([
+    prisma.debt.findMany({
+      select: {
+        personId: true,
+        amount: true,
+        payments: {
+          select: {
+            amount: true,
+          },
+        },
+      },
+    }),
+    prisma.payment.aggregate({
+      where: {
+        paidAt: {
+          gte: monthStart,
+          lt: nextMonthStart,
+        },
+      },
+      _sum: {
+        amount: true,
+      },
+    }),
+  ]);
+
+  const totalOutstanding = debts.reduce(
+    (total, debt) => total.plus(getDebtOutstanding(debt)),
+    new Prisma.Decimal(0),
+  );
+  const peopleOwing = new Set(
+    debts
+      .filter((debt) => getDebtOutstanding(debt).greaterThan(0))
+      .map((debt) => debt.personId),
+  ).size;
+  const paidThisMonth =
+    paymentsThisMonth._sum.amount ?? new Prisma.Decimal(0);
+
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
       <header className="mb-12">
@@ -18,9 +62,15 @@ export default function HomePage() {
       </header>
 
       <section className="grid gap-4 sm:grid-cols-3">
-        <SummaryCard label="Total outstanding" value="$0.00" />
-        <SummaryCard label="Paid this month" value="$0.00" />
-        <SummaryCard label="People owing money" value="0" />
+        <SummaryCard
+          label="Total outstanding"
+          value={formatMoney(totalOutstanding)}
+        />
+        <SummaryCard
+          label="Paid this month"
+          value={formatMoney(paidThisMonth)}
+        />
+        <SummaryCard label="People owing money" value={String(peopleOwing)} />
       </section>
 
       <section className="mt-10 flex gap-3">
