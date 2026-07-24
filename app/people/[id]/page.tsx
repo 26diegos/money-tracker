@@ -3,9 +3,22 @@ import { notFound } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
+import { PaymentForm } from "./payment-form";
 
 function formatAmount(amount: Prisma.Decimal) {
   return `$${amount.toFixed(2)}`;
+}
+
+function getDebtStatus(paid: Prisma.Decimal, remaining: Prisma.Decimal) {
+  if (remaining.isZero()) {
+    return "Paid";
+  }
+
+  if (paid.greaterThan(0)) {
+    return "Partially paid";
+  }
+
+  return "Unpaid";
 }
 
 export default async function PersonDetailPage({
@@ -19,6 +32,11 @@ export default async function PersonDetailPage({
     include: {
       debts: {
         orderBy: [{ incurredAt: "desc" }, { createdAt: "desc" }],
+        include: {
+          payments: {
+            orderBy: [{ paidAt: "desc" }, { createdAt: "desc" }],
+          },
+        },
       },
     },
   });
@@ -27,8 +45,23 @@ export default async function PersonDetailPage({
     notFound();
   }
 
-  const total = person.debts.reduce(
-    (sum, debt) => sum.plus(debt.amount),
+  const debts = person.debts.map((debt) => {
+    const paid = debt.payments.reduce(
+      (sum, payment) => sum.plus(payment.amount),
+      new Prisma.Decimal(0),
+    );
+    const remaining = debt.amount.minus(paid);
+
+    return {
+      ...debt,
+      paid,
+      remaining,
+      status: getDebtStatus(paid, remaining),
+    };
+  });
+
+  const totalOutstanding = debts.reduce(
+    (sum, debt) => sum.plus(debt.remaining),
     new Prisma.Decimal(0),
   );
 
@@ -52,8 +85,10 @@ export default async function PersonDetailPage({
         </div>
 
         <div className="rounded-xl border border-zinc-200 px-5 py-4 text-right">
-          <p className="text-sm text-zinc-500">Total owed</p>
-          <p className="mt-1 text-2xl font-semibold">{formatAmount(total)}</p>
+          <p className="text-sm text-zinc-500">Total outstanding</p>
+          <p className="mt-1 text-2xl font-semibold">
+            {formatAmount(totalOutstanding)}
+          </p>
         </div>
       </div>
 
@@ -62,7 +97,7 @@ export default async function PersonDetailPage({
       <section className="mt-10">
         <h2 className="text-xl font-semibold">Debts</h2>
 
-        {person.debts.length === 0 ? (
+        {debts.length === 0 ? (
           <div className="mt-4 rounded-xl border border-dashed border-zinc-300 p-10 text-center">
             <p className="font-medium">No debts yet</p>
             <p className="mt-1 text-sm text-zinc-500">
@@ -71,14 +106,19 @@ export default async function PersonDetailPage({
           </div>
         ) : (
           <ul className="mt-4 grid gap-4">
-            {person.debts.map((debt) => (
+            {debts.map((debt) => (
               <li
                 key={debt.id}
                 className="rounded-xl border border-zinc-200 p-5"
               >
-                <div className="flex items-start justify-between gap-4">
+                <div className="flex flex-wrap items-start justify-between gap-4">
                   <div>
-                    <p className="font-semibold">{debt.description}</p>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="font-semibold">{debt.description}</p>
+                      <span className="rounded-full bg-zinc-100 px-2 py-1 text-xs font-medium text-zinc-700">
+                        {debt.status}
+                      </span>
+                    </div>
                     {debt.notes ? (
                       <p className="mt-1 whitespace-pre-wrap text-sm text-zinc-600">
                         {debt.notes}
@@ -98,6 +138,58 @@ export default async function PersonDetailPage({
                     </time>
                   </div>
                 </div>
+
+                <dl className="mt-4 grid grid-cols-2 gap-3 rounded-lg bg-zinc-50 p-4 text-sm">
+                  <div>
+                    <dt className="text-zinc-500">Paid</dt>
+                    <dd className="mt-1 font-medium">
+                      {formatAmount(debt.paid)}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-zinc-500">Remaining</dt>
+                    <dd className="mt-1 font-medium">
+                      {formatAmount(debt.remaining)}
+                    </dd>
+                  </div>
+                </dl>
+
+                {debt.remaining.greaterThan(0) ? (
+                  <PaymentForm
+                    personId={person.id}
+                    debtId={debt.id}
+                    remaining={debt.remaining.toFixed(2)}
+                  />
+                ) : null}
+
+                {debt.payments.length > 0 ? (
+                  <div className="mt-5 border-t border-zinc-200 pt-5">
+                    <h3 className="text-sm font-semibold">Payment history</h3>
+                    <ul className="mt-3 grid gap-2">
+                      {debt.payments.map((payment) => (
+                        <li
+                          key={payment.id}
+                          className="flex items-start justify-between gap-4 text-sm"
+                        >
+                          <div>
+                            <p className="font-medium">
+                              {formatAmount(payment.amount)}
+                            </p>
+                            {payment.notes ? (
+                              <p className="text-zinc-500">{payment.notes}</p>
+                            ) : null}
+                          </div>
+                          <time
+                            dateTime={payment.paidAt.toISOString()}
+                            className="shrink-0 text-zinc-500"
+                          >
+                            {payment.paidAt.toLocaleDateString()}
+                          </time>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
