@@ -80,6 +80,7 @@ export async function createDebt(
   revalidatePath(`/people/${personId}`);
   revalidatePath("/people");
   revalidatePath("/");
+  revalidatePath("/reports");
 
   return {
     status: "success",
@@ -190,6 +191,7 @@ export async function createPayment(
   revalidatePath(`/people/${personId}`);
   revalidatePath("/people");
   revalidatePath("/");
+  revalidatePath("/reports");
 
   return {
     status: "success",
