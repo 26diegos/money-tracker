@@ -34,6 +34,7 @@ export async function createPerson(
   });
 
   revalidatePath("/people");
+  revalidatePath("/");
 
   return {
     status: "success",
