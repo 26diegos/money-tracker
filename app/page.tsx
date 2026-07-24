@@ -115,7 +115,7 @@ export default async function HomePage() {
   });
 
   return (
-    <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
+    <main className="mx-auto min-h-screen w-full max-w-5xl px-6 py-12">
       <header className="mb-12">
         <p className="mb-2 text-sm font-medium text-zinc-500">
           Personal money tracker

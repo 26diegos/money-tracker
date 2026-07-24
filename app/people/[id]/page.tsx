@@ -101,7 +101,7 @@ export default async function PersonDetailPage({
   const now = new Date();
 
   return (
-    <main className="mx-auto max-w-5xl px-6 py-12">
+    <main className="mx-auto w-full max-w-5xl px-6 py-12">
       <Link
         href="/people"
         className="text-sm text-zinc-500 hover:text-black"
