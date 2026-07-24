@@ -3,7 +3,10 @@ import { notFound } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
+import { DebtEditForm } from "./debt-edit-form";
 import { PaymentForm } from "./payment-form";
+import { PaymentEditForm } from "./payment-edit-form";
+import { PersonEditForm } from "./person-edit-form";
 
 function formatAmount(amount: Prisma.Decimal) {
   return `$${amount.toFixed(2)}`;
@@ -19,6 +22,14 @@ function getDebtStatus(paid: Prisma.Decimal, remaining: Prisma.Decimal) {
   }
 
   return "Unpaid";
+}
+
+function formatDateInput(date: Date) {
+  return [
+    date.getFullYear(),
+    String(date.getMonth() + 1).padStart(2, "0"),
+    String(date.getDate()).padStart(2, "0"),
+  ].join("-");
 }
 
 export default async function PersonDetailPage({
@@ -92,6 +103,12 @@ export default async function PersonDetailPage({
         </div>
       </div>
 
+      <PersonEditForm
+        personId={person.id}
+        name={person.name}
+        notes={person.notes ?? ""}
+      />
+
       <DebtForm personId={person.id} />
 
       <section className="mt-10">
@@ -154,6 +171,15 @@ export default async function PersonDetailPage({
                   </div>
                 </dl>
 
+                <DebtEditForm
+                  personId={person.id}
+                  debtId={debt.id}
+                  description={debt.description}
+                  amount={debt.amount.toFixed(2)}
+                  incurredAt={formatDateInput(debt.incurredAt)}
+                  notes={debt.notes ?? ""}
+                />
+
                 {debt.remaining.greaterThan(0) ? (
                   <PaymentForm
                     personId={person.id}
@@ -169,22 +195,36 @@ export default async function PersonDetailPage({
                       {debt.payments.map((payment) => (
                         <li
                           key={payment.id}
-                          className="flex items-start justify-between gap-4 text-sm"
+                          className="grid gap-2 text-sm"
                         >
-                          <div>
-                            <p className="font-medium">
-                              {formatAmount(payment.amount)}
-                            </p>
-                            {payment.notes ? (
-                              <p className="text-zinc-500">{payment.notes}</p>
-                            ) : null}
+                          <div className="flex items-start justify-between gap-4">
+                            <div>
+                              <p className="font-medium">
+                                {formatAmount(payment.amount)}
+                              </p>
+                              {payment.notes ? (
+                                <p className="text-zinc-500">{payment.notes}</p>
+                              ) : null}
+                            </div>
+                            <time
+                              dateTime={payment.paidAt.toISOString()}
+                              className="shrink-0 text-zinc-500"
+                            >
+                              {payment.paidAt.toLocaleDateString()}
+                            </time>
                           </div>
-                          <time
-                            dateTime={payment.paidAt.toISOString()}
-                            className="shrink-0 text-zinc-500"
-                          >
-                            {payment.paidAt.toLocaleDateString()}
-                          </time>
+
+                          <PaymentEditForm
+                            personId={person.id}
+                            debtId={debt.id}
+                            paymentId={payment.id}
+                            amount={payment.amount.toFixed(2)}
+                            maximumAmount={debt.remaining
+                              .plus(payment.amount)
+                              .toFixed(2)}
+                            paidAt={formatDateInput(payment.paidAt)}
+                            notes={payment.notes ?? ""}
+                          />
                         </li>
                       ))}
                     </ul>
