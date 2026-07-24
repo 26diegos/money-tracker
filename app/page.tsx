@@ -8,7 +8,7 @@ export default async function HomePage() {
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
   const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
-  const [debts, paymentsThisMonth] = await Promise.all([
+  const [debts, paymentsThisMonth, unpaidInstallments] = await Promise.all([
     prisma.debt.findMany({
       select: {
         personId: true,
@@ -31,6 +31,31 @@ export default async function HomePage() {
         amount: true,
       },
     }),
+    prisma.installment.findMany({
+      where: {
+        paymentId: null,
+        dueAt: {
+          lt: nextMonthStart,
+        },
+      },
+      orderBy: {
+        dueAt: "asc",
+      },
+      select: {
+        amount: true,
+        dueAt: true,
+        debt: {
+          select: {
+            person: {
+              select: {
+                id: true,
+                name: true,
+              },
+            },
+          },
+        },
+      },
+    }),
   ]);
 
   const totalOutstanding = debts.reduce(
@@ -44,6 +69,35 @@ export default async function HomePage() {
   ).size;
   const paidThisMonth =
     paymentsThisMonth._sum.amount ?? new Prisma.Decimal(0);
+  const installmentsByPerson = Array.from(
+    unpaidInstallments
+      .reduce((people, installment) => {
+        const person = installment.debt.person;
+        const existing = people.get(person.id) ?? {
+          id: person.id,
+          name: person.name,
+          overdue: new Prisma.Decimal(0),
+          dueThisMonth: new Prisma.Decimal(0),
+        };
+
+        if (installment.dueAt < monthStart) {
+          existing.overdue = existing.overdue.plus(installment.amount);
+        } else {
+          existing.dueThisMonth = existing.dueThisMonth.plus(
+            installment.amount,
+          );
+        }
+
+        people.set(person.id, existing);
+        return people;
+      }, new Map<string, { id: string; name: string; overdue: Prisma.Decimal; dueThisMonth: Prisma.Decimal }>())
+      .values(),
+  ).sort((a, b) => {
+    const overdueComparison = b.overdue.comparedTo(a.overdue);
+    return overdueComparison !== 0
+      ? overdueComparison
+      : a.name.localeCompare(b.name);
+  });
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
@@ -87,6 +141,60 @@ export default async function HomePage() {
         >
           Monthly reports
         </Link>
+      </section>
+
+      <section className="mt-12">
+        <div>
+          <h2 className="text-2xl font-semibold">Payments to collect</h2>
+          <p className="mt-2 text-zinc-600">
+            Installments due this month and any unpaid amounts from earlier
+            months.
+          </p>
+        </div>
+
+        {installmentsByPerson.length === 0 ? (
+          <div className="mt-4 rounded-xl border border-dashed border-zinc-300 p-8 text-center">
+            <p className="font-medium">No installments need attention</p>
+            <p className="mt-1 text-sm text-zinc-500">
+              Upcoming installments will appear here in their due month.
+            </p>
+          </div>
+        ) : (
+          <ul className="mt-4 grid gap-3">
+            {installmentsByPerson.map((person) => (
+              <li
+                key={person.id}
+                className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-200 p-5"
+              >
+                <Link
+                  href={`/people/${person.id}`}
+                  className="font-semibold hover:underline"
+                >
+                  {person.name}
+                </Link>
+
+                <dl className="flex flex-wrap gap-6 text-right text-sm">
+                  {person.overdue.greaterThan(0) ? (
+                    <div>
+                      <dt className="text-red-600">Overdue</dt>
+                      <dd className="mt-1 font-semibold text-red-700">
+                        {formatMoney(person.overdue)}
+                      </dd>
+                    </div>
+                  ) : null}
+                  {person.dueThisMonth.greaterThan(0) ? (
+                    <div>
+                      <dt className="text-zinc-500">Due this month</dt>
+                      <dd className="mt-1 font-semibold">
+                        {formatMoney(person.dueThisMonth)}
+                      </dd>
+                    </div>
+                  ) : null}
+                </dl>
+              </li>
+            ))}
+          </ul>
+        )}
       </section>
     </main>
   );

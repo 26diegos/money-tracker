@@ -20,6 +20,7 @@ type PaymentEditFormProps = {
   maximumAmount: string;
   paidAt: string;
   notes: string;
+  amountLocked?: boolean;
 };
 
 export function PaymentEditForm({
@@ -30,6 +31,7 @@ export function PaymentEditForm({
   maximumAmount,
   paidAt,
   notes,
+  amountLocked = false,
 }: PaymentEditFormProps) {
   const [state, formAction, pending] = useActionState(
     updatePayment,
@@ -70,8 +72,9 @@ export function PaymentEditForm({
               step="0.01"
               inputMode="decimal"
               defaultValue={amount}
+              readOnly={amountLocked}
               aria-describedby={messageId}
-              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2"
+              className="mt-1 w-full rounded-md border border-zinc-300 px-3 py-2 read-only:bg-zinc-100 read-only:text-zinc-500"
             />
           </div>
 

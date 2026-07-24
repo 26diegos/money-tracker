@@ -19,6 +19,7 @@ type DebtEditFormProps = {
   amount: string;
   incurredAt: string;
   notes: string;
+  amountLocked?: boolean;
 };
 
 export function DebtEditForm({
@@ -28,6 +29,7 @@ export function DebtEditForm({
   amount,
   incurredAt,
   notes,
+  amountLocked = false,
 }: DebtEditFormProps) {
   const [state, formAction, pending] = useActionState(
     updateDebt,
@@ -83,9 +85,15 @@ export function DebtEditForm({
               step="0.01"
               inputMode="decimal"
               defaultValue={amount}
+              readOnly={amountLocked}
               aria-describedby={messageId}
-              className="mt-2 w-full rounded-md border border-zinc-300 px-3 py-2"
+              className="mt-2 w-full rounded-md border border-zinc-300 px-3 py-2 read-only:bg-zinc-100 read-only:text-zinc-500"
             />
+            {amountLocked ? (
+              <p className="mt-1 text-xs text-zinc-500">
+                Remove the debt to replace an active installment schedule.
+              </p>
+            ) : null}
           </div>
 
           <div>
