@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { Prisma } from "@/src/generated/prisma/client";
+import { getMonthBounds } from "@/lib/installments";
 import { formatMoney, getDebtOutstanding } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 
 export default async function HomePage() {
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const { monthStart, nextMonthStart } = getMonthBounds(now);
 
   const [debts, paymentsThisMonth, unpaidInstallments] = await Promise.all([
     prisma.debt.findMany({

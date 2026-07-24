@@ -3,6 +3,8 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
+import { buildInstallmentSchedule } from "@/lib/installments";
+import { canApplyPayment, debtAmountCoversPaid } from "@/lib/money";
 import { prisma } from "@/lib/prisma";
 
 export type CreateDebtState = {
@@ -63,24 +65,6 @@ function revalidateMoneyPages(personId: string) {
   revalidatePath("/people");
   revalidatePath("/");
   revalidatePath("/reports");
-}
-
-function addMonthsClamped(date: Date, offset: number) {
-  const targetMonth = date.getUTCMonth() + offset;
-  const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
-  const normalizedMonth = ((targetMonth % 12) + 12) % 12;
-  const lastDay = new Date(
-    Date.UTC(targetYear, normalizedMonth + 1, 0, 12),
-  ).getUTCDate();
-
-  return new Date(
-    Date.UTC(
-      targetYear,
-      normalizedMonth,
-      Math.min(date.getUTCDate(), lastDay),
-      12,
-    ),
-  );
 }
 
 export async function createDebt(
@@ -212,7 +196,7 @@ export async function createPayment(
       );
       const remaining = debt.amount.minus(paid);
 
-      if (paymentAmount.greaterThan(remaining)) {
+      if (!canApplyPayment(paymentAmount, remaining)) {
         return {
           status: "overpayment",
           remaining: remaining.toFixed(2),
@@ -434,7 +418,7 @@ export async function updateDebt(
         return { status: "scheduled-amount" } as const;
       }
 
-      if (debtAmount.lessThan(paid)) {
+      if (!debtAmountCoversPaid(debtAmount, paid)) {
         return {
           status: "below-paid",
           paid: paid.toFixed(2),
@@ -601,7 +585,7 @@ export async function updatePayment(
         } as const;
       }
 
-      if (paymentAmount.greaterThan(maximumPayment)) {
+      if (!canApplyPayment(paymentAmount, maximumPayment)) {
         return {
           status: "overpayment",
           maximum: maximumPayment.toFixed(2),
@@ -863,24 +847,26 @@ export async function createInstallmentPlan(
         return { status: "already-paid" } as const;
       }
 
-      const totalCents = debt.amount.times(100).toNumber();
+      let schedule;
 
-      if (installmentCount > totalCents) {
-        return { status: "amount-too-small" } as const;
+      try {
+        schedule = buildInstallmentSchedule(
+          debt.amount,
+          installmentCount,
+          firstDueAt,
+        );
+      } catch (error) {
+        if (error instanceof RangeError) {
+          return { status: "amount-too-small" } as const;
+        }
+
+        throw error;
       }
 
-      const regularCents = Math.floor(totalCents / installmentCount);
-      const finalCents =
-        totalCents - regularCents * (installmentCount - 1);
-
       await transaction.installment.createMany({
-        data: Array.from({ length: installmentCount }, (_, index) => ({
+        data: schedule.map((installment) => ({
           debtId,
-          sequence: index + 1,
-          amount: new Prisma.Decimal(
-            index === installmentCount - 1 ? finalCents : regularCents,
-          ).dividedBy(100),
-          dueAt: addMonthsClamped(firstDueAt, index),
+          ...installment,
         })),
       });
 
@@ -1001,7 +987,7 @@ export async function markInstallmentPaid(
       );
       const remaining = installment.debt.amount.minus(paid);
 
-      if (installment.amount.greaterThan(remaining)) {
+      if (!canApplyPayment(installment.amount, remaining)) {
         return {
           status: "overpayment",
           remaining: remaining.toFixed(2),
