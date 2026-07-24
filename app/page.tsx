@@ -142,7 +142,7 @@ export default async function HomePage() {
         <SummaryCard label="People owing money" value={String(peopleOwing)} />
       </section>
 
-      <section className="mt-10 flex gap-3">
+      <section className="mt-10 flex flex-wrap gap-3">
         <Link
           href="/people"
           className="rounded-md bg-black px-4 py-2 text-sm font-medium text-white"
@@ -155,6 +155,13 @@ export default async function HomePage() {
           className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium"
         >
           Monthly reports
+        </Link>
+
+        <Link
+          href="/exports"
+          className="rounded-md border border-zinc-300 px-4 py-2 text-sm font-medium"
+        >
+          Export data
         </Link>
       </section>
 
