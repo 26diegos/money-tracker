@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
+import { getInstallmentStatus } from "@/lib/installments";
 import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
 import { DebtEditForm } from "./debt-edit-form";
@@ -33,27 +34,6 @@ function formatDateInput(date: Date) {
     String(date.getMonth() + 1).padStart(2, "0"),
     String(date.getDate()).padStart(2, "0"),
   ].join("-");
-}
-
-function getInstallmentStatus(
-  dueAt: Date,
-  isPaid: boolean,
-  monthStart: Date,
-  nextMonthStart: Date,
-) {
-  if (isPaid) {
-    return "Paid";
-  }
-
-  if (dueAt < monthStart) {
-    return "Overdue";
-  }
-
-  if (dueAt < nextMonthStart) {
-    return "Due this month";
-  }
-
-  return "Upcoming";
 }
 
 export default async function PersonDetailPage({
@@ -119,8 +99,6 @@ export default async function PersonDetailPage({
     new Prisma.Decimal(0),
   );
   const now = new Date();
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-  const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
 
   return (
     <main className="mx-auto max-w-5xl px-6 py-12">
@@ -261,8 +239,7 @@ export default async function PersonDetailPage({
                         const status = getInstallmentStatus(
                           installment.dueAt,
                           Boolean(installment.payment),
-                          monthStart,
-                          nextMonthStart,
+                          now,
                         );
 
                         return (

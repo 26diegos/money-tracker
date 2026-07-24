@@ -30,3 +30,20 @@ export function getTotalOutstanding(debts: DebtAmounts[]) {
 export function formatMoney(amount: Prisma.Decimal) {
   return `$${amount.toFixed(2)}`;
 }
+
+export function canApplyPayment(
+  paymentAmount: Prisma.Decimal,
+  remaining: Prisma.Decimal,
+) {
+  return (
+    paymentAmount.greaterThan(0) &&
+    paymentAmount.lessThanOrEqualTo(remaining)
+  );
+}
+
+export function debtAmountCoversPaid(
+  debtAmount: Prisma.Decimal,
+  paid: Prisma.Decimal,
+) {
+  return debtAmount.greaterThanOrEqualTo(paid);
+}
