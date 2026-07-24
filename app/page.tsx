@@ -98,6 +98,21 @@ export default async function HomePage() {
       ? overdueComparison
       : a.name.localeCompare(b.name);
   });
+  const dueThisMonth = installmentsByPerson.reduce(
+    (total, person) => total.plus(person.dueThisMonth),
+    new Prisma.Decimal(0),
+  );
+  const overdue = installmentsByPerson.reduce(
+    (total, person) => total.plus(person.overdue),
+    new Prisma.Decimal(0),
+  );
+  const peopleDueThisMonth = installmentsByPerson.filter((person) =>
+    person.dueThisMonth.greaterThan(0),
+  ).length;
+  const monthLabel = now.toLocaleDateString("en-US", {
+    month: "long",
+    year: "numeric",
+  });
 
   return (
     <main className="mx-auto min-h-screen max-w-5xl px-6 py-12">
@@ -143,40 +158,114 @@ export default async function HomePage() {
         </Link>
       </section>
 
-      <section className="mt-12">
-        <div>
-          <h2 className="text-2xl font-semibold">Payments to collect</h2>
-          <p className="mt-2 text-zinc-600">
-            Installments due this month and any unpaid amounts from earlier
-            months.
-          </p>
+      <section className="mt-12 overflow-hidden rounded-2xl border border-zinc-200 bg-zinc-50 text-zinc-900">
+        <div className="grid gap-px bg-zinc-200 lg:grid-cols-[1fr_280px]">
+          <div className="bg-zinc-950 p-6 text-white sm:p-8">
+            <div className="flex flex-wrap items-start justify-between gap-6">
+              <div>
+                <p className="text-sm font-medium text-zinc-400">
+                  {monthLabel}
+                </p>
+                <h2 className="mt-2 text-2xl font-semibold">
+                  To collect this month
+                </h2>
+                <p className="mt-2 max-w-xl text-sm text-zinc-400">
+                  Expected installment payments that need your attention.
+                </p>
+              </div>
+
+              <div className="min-w-44 lg:text-right">
+                <p className="text-4xl font-semibold tracking-tight">
+                  {formatMoney(dueThisMonth)}
+                </p>
+                <p className="mt-2 text-sm text-zinc-400">
+                  {peopleDueThisMonth === 1
+                    ? "From 1 person"
+                    : `From ${peopleDueThisMonth} people`}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div
+            className={
+              overdue.greaterThan(0)
+                ? "bg-red-50 p-6 sm:p-8"
+                : "bg-white p-6 sm:p-8"
+            }
+          >
+            <p
+              className={
+                overdue.greaterThan(0)
+                  ? "text-sm font-medium text-red-700"
+                  : "text-sm font-medium text-zinc-500"
+              }
+            >
+              Past due
+            </p>
+            <p
+              className={
+                overdue.greaterThan(0)
+                  ? "mt-2 text-3xl font-semibold text-red-800"
+                  : "mt-2 text-3xl font-semibold text-zinc-900"
+              }
+            >
+              {formatMoney(overdue)}
+            </p>
+            <p
+              className={
+                overdue.greaterThan(0)
+                  ? "mt-2 text-sm text-red-700"
+                  : "mt-2 text-sm text-zinc-500"
+              }
+            >
+              {overdue.greaterThan(0)
+                ? "Unpaid from earlier months"
+                : "Nothing overdue"}
+            </p>
+          </div>
         </div>
 
         {installmentsByPerson.length === 0 ? (
-          <div className="mt-4 rounded-xl border border-dashed border-zinc-300 p-8 text-center">
-            <p className="font-medium">No installments need attention</p>
+          <div className="bg-white p-10 text-center">
+            <div className="mx-auto flex size-11 items-center justify-center rounded-full bg-emerald-100 text-lg text-emerald-700">
+              ✓
+            </div>
+            <p className="mt-4 font-medium">You’re all caught up</p>
             <p className="mt-1 text-sm text-zinc-500">
               Upcoming installments will appear here in their due month.
             </p>
           </div>
         ) : (
-          <ul className="mt-4 grid gap-3">
+          <ul className="divide-y divide-zinc-200 bg-white">
             {installmentsByPerson.map((person) => (
               <li
                 key={person.id}
-                className="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-zinc-200 p-5"
+                className="grid gap-4 p-5 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center sm:px-8"
               >
-                <Link
-                  href={`/people/${person.id}`}
-                  className="font-semibold hover:underline"
-                >
-                  {person.name}
-                </Link>
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-zinc-100 text-sm font-semibold text-zinc-700">
+                    {person.name.trim().charAt(0).toUpperCase() || "?"}
+                  </div>
+                  <div className="min-w-0">
+                    <Link
+                      href={`/people/${person.id}`}
+                      className="font-semibold hover:underline"
+                    >
+                      {person.name}
+                    </Link>
+                    <p className="mt-1 text-xs text-zinc-500">
+                      Installment payment
+                    </p>
+                  </div>
+                </div>
 
-                <dl className="flex flex-wrap gap-6 text-right text-sm">
+                <dl className="flex flex-wrap gap-5 text-sm sm:justify-end sm:text-right">
                   {person.overdue.greaterThan(0) ? (
                     <div>
-                      <dt className="text-red-600">Overdue</dt>
+                      <dt className="text-xs font-medium text-red-600">
+                        Past due
+                      </dt>
                       <dd className="mt-1 font-semibold text-red-700">
                         {formatMoney(person.overdue)}
                       </dd>
@@ -184,13 +273,20 @@ export default async function HomePage() {
                   ) : null}
                   {person.dueThisMonth.greaterThan(0) ? (
                     <div>
-                      <dt className="text-zinc-500">Due this month</dt>
-                      <dd className="mt-1 font-semibold">
+                      <dt className="text-xs text-zinc-500">This month</dt>
+                      <dd className="mt-1 font-semibold text-zinc-900">
                         {formatMoney(person.dueThisMonth)}
                       </dd>
                     </div>
                   ) : null}
                 </dl>
+
+                <Link
+                  href={`/people/${person.id}`}
+                  className="w-fit rounded-md border border-zinc-300 px-3 py-2 text-xs font-medium text-zinc-700 hover:bg-zinc-50"
+                >
+                  Review and mark paid →
+                </Link>
               </li>
             ))}
           </ul>

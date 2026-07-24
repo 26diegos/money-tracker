@@ -28,7 +28,10 @@ export function getTotalOutstanding(debts: DebtAmounts[]) {
 }
 
 export function formatMoney(amount: Prisma.Decimal) {
-  return `$${amount.toFixed(2)}`;
+  const [whole, fraction] = amount.toFixed(2).split(".");
+  const groupedWhole = whole.replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+
+  return `$${groupedWhole}.${fraction}`;
 }
 
 export function canApplyPayment(

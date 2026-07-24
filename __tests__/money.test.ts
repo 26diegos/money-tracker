@@ -84,4 +84,8 @@ describe("money formatting", () => {
     expect(formatMoney(decimal("12"))).toBe("$12.00");
     expect(formatMoney(decimal("12.3"))).toBe("$12.30");
   });
+
+  it("groups thousands for dashboard readability", () => {
+    expect(formatMoney(decimal("12345.67"))).toBe("$12,345.67");
+  });
 });
