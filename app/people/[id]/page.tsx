@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Prisma } from "@/src/generated/prisma/client";
 import { getInstallmentStatus } from "@/lib/installments";
+import { buildPaymentReminder } from "@/lib/reminders";
 import { prisma } from "@/lib/prisma";
 import { DebtForm } from "./debt-form";
 import { DebtEditForm } from "./debt-edit-form";
@@ -10,6 +11,7 @@ import { InstallmentPlanForm } from "./installment-plan-form";
 import { MarkInstallmentPaidForm } from "./mark-installment-paid-form";
 import { PaymentForm } from "./payment-form";
 import { PaymentEditForm } from "./payment-edit-form";
+import { PaymentReminder } from "./payment-reminder";
 import { PersonEditForm } from "./person-edit-form";
 
 function formatAmount(amount: Prisma.Decimal) {
@@ -99,6 +101,12 @@ export default async function PersonDetailPage({
     new Prisma.Decimal(0),
   );
   const now = new Date();
+  const paymentReminder = buildPaymentReminder(
+    person.name,
+    debts,
+    totalOutstanding,
+    now,
+  );
 
   return (
     <main className="mx-auto w-full max-w-5xl px-6 py-12">
@@ -126,6 +134,8 @@ export default async function PersonDetailPage({
           </p>
         </div>
       </div>
+
+      <PaymentReminder reminder={paymentReminder} />
 
       <PersonEditForm
         personId={person.id}
