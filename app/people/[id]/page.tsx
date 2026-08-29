@@ -38,12 +38,37 @@ function formatDateInput(date: Date) {
   ].join("-");
 }
 
+function parseForecastDate(value: string | string[] | undefined, today: Date) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    return today;
+  }
+
+  const [year, month, day] = value.split("-").map(Number);
+  const date = new Date(year, month - 1, day, 12);
+  const todayStart = new Date(today);
+  todayStart.setHours(0, 0, 0, 0);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day ||
+    date < todayStart
+  ) {
+    return today;
+  }
+
+  return date;
+}
+
 export default async function PersonDetailPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ forecastDate?: string | string[] }>;
 }) {
   const { id } = await params;
+  const query = await searchParams;
   const person = await prisma.person.findUnique({
     where: { id },
     include: {
@@ -101,11 +126,13 @@ export default async function PersonDetailPage({
     new Prisma.Decimal(0),
   );
   const now = new Date();
+  const forecastDate = parseForecastDate(query.forecastDate, now);
   const paymentReminder = buildPaymentReminder(
     person.name,
     debts,
     totalOutstanding,
     now,
+    forecastDate,
   );
 
   return (
