@@ -41,3 +41,16 @@ The current local `prisma dev` shadow database fails during
 `prisma migrate dev` with P1017. For this local prototype, use `prisma db push`
 until that incompatibility is resolved. Do not use `db push` as a replacement
 for reviewed migrations in production.
+
+## Production database
+
+The repository includes a baseline migration for initializing an empty hosted
+PostgreSQL database. Set `DATABASE_URL` to the hosted database connection string
+and apply committed migrations with:
+
+```bash
+npx prisma migrate deploy
+```
+
+Do not commit real connection strings. Use `.env.example` only as a list of the
+required variable names.
